@@ -6,17 +6,19 @@ jobs:
     strategy:
       matrix:
         include:
-        - PHP_VERSION: php72-fpm
-          MAGENTO_VERSION: 2.3.6-p1
+        - PHP_VERSION: php73-fpm
+          MAGENTO_VERSION: 2.3.7-p3
         - PHP_VERSION: php74-fpm
-          MAGENTO_VERSION: 2.4.2
+          MAGENTO_VERSION: 2.4.0
+        - PHP_VERSION: php81-fpm
+          MAGENTO_VERSION: 2.4.5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
 
       # Public repository
       - uses: actions/checkout@v2
-        if: "contains(github.repository, 'mollie/magento2')"
+        if: "!contains(github.repository, 'magmodules')"
         with:
           repository: mollie/magento2
           path: mollie-base
@@ -33,14 +35,14 @@ jobs:
       - name: Start Docker
         run: docker run --detach --name magento-project-community-edition michielgerritsen/magento-project-community-edition:${{ matrix.PHP_VERSION }}-magento${{ matrix.MAGENTO_VERSION }}
 
-      - name: Create branch for Composer
-        run: git checkout -b continuous-integration-test-branch
+      - name: Remove version from composer.json
+        run: sed -i '/version/d' ./composer.json && sed -i '/version/d' ./mollie-base/composer.json
 
       - name: Upload the code into the docker container
         run: docker cp $(pwd)/mollie-base/ magento-project-community-edition:/data/extensions/mollie-magento2/ && rm -rf mollie-base/ && docker cp $(pwd)/. magento-project-community-edition:/data/extensions/mollie-magento2-multishipping/
 
       - name: Install Mollie and Mollie Multishipping extensions
-        run: docker exec magento-project-community-edition composer require mollie/magento2:"dev-master as 1.99.99" mollie/magento2-multishipping:"dev-continuous-integration-test-branch as 1.99.99"
+        run: docker exec magento-project-community-edition composer require mollie/magento2:"dev-master as 2.99.99" mollie/magento2-multishipping:@dev
 
       - name: Run setup:di:compile
-        run: docker exec magento-project-community-edition php bin/magento setup:di:compile
+        run: docker exec magento-project-community-edition ./retry "php bin/magento setup:di:compile"

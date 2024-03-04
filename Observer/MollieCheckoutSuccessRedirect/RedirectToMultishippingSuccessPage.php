@@ -6,7 +6,6 @@
 
 namespace Mollie\Multishipping\Observer\MollieCheckoutSuccessRedirect;
 
-use Magento\Framework\App\Response\RedirectInterface;
 use Magento\Framework\Event\Observer;
 use Magento\Framework\Event\ObserverInterface;
 use Magento\Multishipping\Model\Checkout\Type\Multishipping\State;
@@ -18,17 +17,10 @@ class RedirectToMultishippingSuccessPage implements ObserverInterface
      */
     private $state;
 
-    /**
-     * @var RedirectInterface
-     */
-    private $redirect;
-
     public function __construct(
-        State $state,
-        RedirectInterface $redirect
+        State $state
     ) {
         $this->state = $state;
-        $this->redirect = $redirect;
     }
 
     public function execute(Observer $observer)
@@ -40,6 +32,6 @@ class RedirectToMultishippingSuccessPage implements ObserverInterface
         $this->state->setCompleteStep(State::STEP_OVERVIEW);
         $this->state->setActiveStep(State::STEP_SUCCESS);
 
-        $this->redirect->redirect($observer->getData('response'), 'multishipping/checkout/success?utm_nooverride=1');
+        $observer->getData('redirect')->setData('path', 'multishipping/checkout/success?utm_nooverride=1');
     }
 }

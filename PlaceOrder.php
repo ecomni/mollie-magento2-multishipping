@@ -7,6 +7,7 @@
 namespace Mollie\Multishipping;
 
 use Magento\Multishipping\Model\Checkout\Type\Multishipping\PlaceOrderInterface;
+use Magento\Payment\Helper\Data as PaymentHelper;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderManagementInterface;
 use Mollie\Multishipping\Service\CheckoutUrl;
@@ -17,9 +18,15 @@ use Mollie\Payment\Model\Client\Payments;
 use Mollie\Payment\Model\Mollie;
 use Mollie\Payment\Service\Order\BuildTransaction;
 use Mollie\Payment\Service\Order\Transaction;
+use Mollie\Payment\Service\PaymentToken\PaymentTokenForOrder;
 
 class PlaceOrder implements PlaceOrderInterface
 {
+    /**
+     * @var PaymentHelper
+     */
+    protected $paymentHelper;
+
     /**
      * @var OrderManagementInterface
      */
@@ -70,6 +77,11 @@ class PlaceOrder implements PlaceOrderInterface
      */
     private $transactionDescription;
 
+    /**
+     * @var PaymentTokenForOrder
+     */
+    private $paymentTokenForOrder;
+
     public function __construct(
         OrderManagementInterface $orderManagement,
         Mollie $mollieModel,
@@ -79,7 +91,9 @@ class PlaceOrder implements PlaceOrderInterface
         MultishippingTransaction $multishippingTransaction,
         BuildTransaction $buildTransaction,
         CheckoutUrl $checkoutUrl,
-        TransactionDescription $transactionDescription
+        TransactionDescription $transactionDescription,
+        PaymentTokenForOrder $paymentTokenForOrder,
+        PaymentHelper $paymentHelper
     ) {
         $this->orderManagement = $orderManagement;
         $this->mollieModel = $mollieModel;
@@ -90,6 +104,8 @@ class PlaceOrder implements PlaceOrderInterface
         $this->buildTransaction = $buildTransaction;
         $this->checkoutUrl = $checkoutUrl;
         $this->transactionDescription = $transactionDescription;
+        $this->paymentTokenForOrder = $paymentTokenForOrder;
+        $this->paymentHelper = $paymentHelper;
     }
 
     /**
@@ -99,13 +115,27 @@ class PlaceOrder implements PlaceOrderInterface
     public function place(array $orderList): array
     {
         try {
+            $mollieOrders = [];
             foreach ($orderList as $order) {
                 $this->orderManagement->place($order);
+                $methodInstance = $order->getPayment()
+                    ? $this->paymentHelper->getMethodInstance($order->getPayment()->getMethod())
+                    : null;
+                if ($methodInstance instanceof Mollie) {
+                    // Only process Mollie orders; some orders _could_ have been paid with 'free' method.
+                    $mollieOrders[] = $order;
+                }
             }
 
-            $firstOrder = reset($orderList);
+            if (count($mollieOrders) === 0) {
+                // This situation should not happen, as the quote would then have 'free' payment method.
+                // This class will then never be called. But to be sure...
+                return $this->errorList;
+            }
+
+            $firstOrder = reset($mollieOrders);
             $storeId = $firstOrder->getStoreId();
-            $paymentData = $this->buildPaymentData($orderList, $storeId);
+            $paymentData = $this->buildPaymentData($mollieOrders, $storeId);
 
             $paymentData = $this->mollieHelper->validatePaymentData($paymentData);
             $this->mollieHelper->addTolog('request', $paymentData);
@@ -125,7 +155,7 @@ class PlaceOrder implements PlaceOrderInterface
             return $errorList;
         }
 
-        foreach ($orderList as $order) {
+        foreach ($mollieOrders as $order) {
             try {
                 $this->molliePaymentsApi->processResponse($order, $paymentResponse);
             } catch (\Exception $exception) {
@@ -155,7 +185,7 @@ class PlaceOrder implements PlaceOrderInterface
     }
 
     /**
-     * @param array $orderList
+     * @param OrderInterface[] $orderList
      * @param $storeId
      * @throws \Magento\Framework\Exception\NoSuchEntityException
      * @return array
@@ -163,16 +193,16 @@ class PlaceOrder implements PlaceOrderInterface
     private function buildPaymentData(array $orderList, $storeId): array
     {
         $firstOrder = reset($orderList);
-        $paymentToken = $this->mollieHelper->getPaymentToken();
+        $paymentToken = $this->paymentTokenForOrder->execute($firstOrder);
         $method = $this->mollieHelper->getMethodCode($firstOrder);
-        $orderIds = array_map(function (OrderInterface $order) { return $order->getIncrementId(); }, $orderList);
+        $orderIds = array_map(function (OrderInterface $order) { return $order->getEntityId(); }, $orderList);
 
         $paymentData = [
             'amount' => $this->getTotalAmount($orderList),
             'description' => $this->transactionDescription->forMultishippingTransaction($storeId),
             'billingAddress' => $this->molliePaymentsApi->getAddressLine($firstOrder->getBillingAddress()),
             'redirectUrl' => $this->multishippingTransaction->getRedirectUrl($orderList, $paymentToken),
-            'webhookUrl' => $this->transaction->getWebhookUrl($storeId),
+            'webhookUrl' => $this->transaction->getWebhookUrl($orderList),
             'method' => $method,
             'metadata' => [
                 'order_ids' => implode(', ', $orderIds),
