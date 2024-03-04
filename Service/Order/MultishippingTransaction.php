@@ -33,24 +33,25 @@ class MultishippingTransaction
     }
 
     /**
-     * @param OrderInterface[] $orders
-     * @param string $paymentToken
-     * @throws \Exception
+     * @param OrderInterface[] $orderList
+     * @param array $paymentTokens
+     *
      * @return string
+     *@throws \Exception
      */
-    public function getRedirectUrl(array $orders, string $paymentToken): string
+    public function getRedirectUrl(array $orderList, array $paymentTokens): string
     {
-        if (!$orders) {
+        if (!$orderList) {
             throw new \Exception('The provided order array is empty');
         }
 
-        $firstOrder = reset($orders);
+        $firstOrder = reset($orderList);
         $storeId = $firstOrder->getStoreId();
 
-        $orderIds = array_map( function (OrderInterface $order) { return $order->getId(); }, $orders);
+        $orderIds = array_map(function (OrderInterface $order) { return $order->getEntityId(); }, $orderList);
         $parameters = http_build_query([
             'order_ids' => $orderIds,
-            'payment_token' => $paymentToken,
+            'payment_tokens' => $paymentTokens,
             'utm_nooverride' => 1,
         ]);
 

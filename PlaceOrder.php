@@ -193,21 +193,25 @@ class PlaceOrder implements PlaceOrderInterface
     private function buildPaymentData(array $orderList, $storeId): array
     {
         $firstOrder = reset($orderList);
-        $paymentToken = $this->paymentTokenForOrder->execute($firstOrder);
-        $method = $this->mollieHelper->getMethodCode($firstOrder);
         $orderIds = array_map(function (OrderInterface $order) { return $order->getEntityId(); }, $orderList);
+        $method = $this->mollieHelper->getMethodCode($firstOrder);
+
+        $paymentTokens = [];
+        foreach ($orderList as $tokenOrder) {
+            $paymentTokens[] = $this->paymentTokenForOrder->execute($tokenOrder);
+        }
 
         $paymentData = [
             'amount' => $this->getTotalAmount($orderList),
             'description' => $this->transactionDescription->forMultishippingTransaction($storeId),
             'billingAddress' => $this->molliePaymentsApi->getAddressLine($firstOrder->getBillingAddress()),
-            'redirectUrl' => $this->multishippingTransaction->getRedirectUrl($orderList, $paymentToken),
+            'redirectUrl' => $this->multishippingTransaction->getRedirectUrl($orderList, $paymentTokens),
             'webhookUrl' => $this->transaction->getWebhookUrl($orderList),
             'method' => $method,
             'metadata' => [
                 'order_ids' => implode(', ', $orderIds),
                 'store_id' => $storeId,
-                'payment_token' => $paymentToken
+                'payment_tokens' => implode(', ', $paymentTokens),
             ],
             'locale' => $this->mollieHelper->getLocaleCode($storeId, Payments::CHECKOUT_TYPE),
         ];

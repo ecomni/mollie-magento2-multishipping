@@ -22,7 +22,7 @@ class TransactionTest extends IntegrationTestCase
 
         /** @var MultishippingTransaction $instance */
         $instance = $this->objectManager->create(MultishippingTransaction::class);
-        $result = $instance->getRedirectUrl($orders, 'PAYMENT_TOKEN_TEST');
+        $result = $instance->getRedirectUrl($orders, ['PAYMENT_TOKEN_TEST']);
 
         $this->assertStringContainsString('order_ids[0]=777', urldecode($result));
         $this->assertStringContainsString('order_ids[1]=888', urldecode($result));
